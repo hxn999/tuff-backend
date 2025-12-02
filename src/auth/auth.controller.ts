@@ -15,7 +15,7 @@ import {
 } from '@nestjs/common';
 import { AuthService } from './auth.service';
 import { Request, Response } from 'express';
-import { SigninDto } from './dto/signinDto';
+import { SigninDto } from './dto/signinDto.dto';
 import { CreateUserDto } from 'src/user/dto/createUserDto';
 import { PassresetDto } from './dto/passResetDto';
 import { PasswordChangeDto } from './dto/passwordChangeDto';
@@ -23,17 +23,30 @@ import { AbilityTuple, MongoAbility, MongoQuery } from '@casl/ability';
 import { Action } from 'src/casl/actionEnum';
 import { AuthGuard } from './auth.guard';
 import { AbilitiesGuard } from 'src/casl/abilities.guard';
+import { ApiOkResponse, ApiProperty, ApiResponse, ApiTags } from '@nestjs/swagger';
+export class LoginRes{
 
+  
+  @ApiProperty()
+  name: string;
+
+  @ApiProperty()
+  pfp: string;
+ 
+}
 export type RequestWithAuth = Request & { user: { _id: string } } & {
   ability: MongoAbility<AbilityTuple, MongoQuery>;
 };
+
+
 
 @Controller('auth')
 export class AuthController {
   constructor(private authService: AuthService) {}
 
+
   @Post('login')
-  async login(@Res() res: Response, @Body() credentials: SigninDto) {
+  async login(@Res({passthrough:true}) res: Response, @Body() credentials: SigninDto) {
     const identifier: string | undefined = credentials.email
       ? credentials.email
       : credentials.phone;

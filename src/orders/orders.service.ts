@@ -16,10 +16,14 @@ import { Counter, CounterDocument } from './schemas/counter.schema';
 import { CreateOrderDto } from './dto/create-order.dto';
 import { QueryOrdersDto } from './dto/query-orders.dto';
 import { UpdateOrderDto } from './dto/update-order.dto';
-import { CouponService } from 'src/coupon/coupon.service';
 import { User, UserDocument } from 'src/user/schemas/user.schema';
-import { Product, ProductDocument } from 'src/products/schemas/product.schema';
-import { Coupon, CouponDocument } from 'src/coupon/schemas/coupon.schema';
+import {
+  Product,
+  ProductDocument,
+  ProductVariant,
+  ProductVariantDocument,
+} from 'src/products/schemas/product.schema';
+import { Types } from 'mongoose';
 
 @Injectable()
 export class OrdersService {
@@ -28,12 +32,13 @@ export class OrdersService {
     private orderModel: Model<OrderDocument>,
     @InjectModel(Counter.name)
     private counterModel: Model<CounterDocument>,
-    @InjectModel(Coupon.name)
-    private couponModel: Model<CouponDocument>,
+
     @InjectModel(User.name)
     private userModel: Model<UserDocument>,
     @InjectModel(Product.name)
     private productModel: Model<ProductDocument>,
+    @InjectModel(ProductVariant.name)
+    private productVariantModel: Model<ProductVariantDocument>,
   ) {}
 
   async create(userId: string, createOrderDto: CreateOrderDto) {
@@ -41,103 +46,130 @@ export class OrdersService {
     if (userId) {
       user = await this.userModel.findById(userId);
       if (user) {
-        createOrderDto.items = user.cart;
+        // Convert ProductItem (ObjectId) to ProductItemDto (string)
+        createOrderDto.items = user.cart.map((item) => ({
+          productId: item.productId.toString(),
+          variantId: item.variantId.toString(),
+          quantity: item.quantity,
+          title: item.title,
+          image_url: item.image_url,
+          price: item.price,
+          slug: item.slug,
+          sku: item.sku,
+          selectedOptions: item.selectedOptions
+            ? Object.fromEntries(item.selectedOptions)
+            : undefined,
+        }));
       }
     }
 
-    let productIdArr = createOrderDto.items.map((p) => p.product._id);
+    // Extract product and variant IDs from cart items (convert strings to ObjectIds for query)
+    const productIdArr = createOrderDto.items.map(
+      (p) => new Types.ObjectId(p.productId),
+    );
+    const variantIdArr = createOrderDto.items.map(
+      (p) => new Types.ObjectId(p.variantId),
+    );
 
     let totalOrderAmount = 0;
 
-    let products = await this.productModel.find({
-      _id: {
-        $in: productIdArr,
-      },
+    // Fetch products and variants to validate they exist
+    const products = await this.productModel.find({
+      _id: { $in: productIdArr },
     });
 
+    const variants = await this.productVariantModel.find({
+      _id: { $in: variantIdArr },
+    });
+
+    // Validate all products exist
     if (products.length !== productIdArr.length) {
       createOrderDto.items.forEach((e) => {
-        if (!products.some((p) => p._id.toString() == e.product._id)) {
+        if (
+          !products.some((p) => p._id.toString() === e.productId.toString())
+        ) {
           throw new NotFoundException(
-            `Product ${e.product.title} does not exists , please remove it from createOrderDto.items`,
+            `Product ${e.title} does not exist, please remove it from cart`,
           );
         }
       });
     }
 
-    createOrderDto.items.forEach((p) => {
-      let product = products.find((e) => e._id.toString() === p.product._id);
-      if (!product)
+    // Validate all variants exist and belong to their products
+    if (variants.length !== variantIdArr.length) {
+      createOrderDto.items.forEach((e) => {
+        if (
+          !variants.some((v) => v._id.toString() === e.variantId.toString())
+        ) {
+          throw new NotFoundException(
+            `Variant for product ${e.title} does not exist, please remove it from cart`,
+          );
+        }
+      });
+    }
+
+    // Calculate total using variant prices (use price from cart item which is already validated)
+    createOrderDto.items.forEach((item) => {
+      const variant = variants.find(
+        (v) => v._id.toString() === item.variantId.toString(),
+      );
+      const product = products.find(
+        (p) => p._id.toString() === item.productId.toString(),
+      );
+
+      if (!variant) {
         throw new NotFoundException(
-          `Product ${p.product.title} does not exists , please remove it from createOrderDto.items`,
+          `Variant for product ${item.title} does not exist`,
         );
-      let price = product.options.find((o) => o.type === p.variant.type)?.price;
-      if (!price)
-        throw new NotFoundException(
-          `Your selected variant for Product ${p.product.title} does not exists`,
+      }
+
+      if (!product) {
+        throw new NotFoundException(`Product ${item.title} does not exist`);
+      }
+
+      // Validate variant belongs to product
+      if (variant.productId.toString() !== product._id.toString()) {
+        throw new BadRequestException(
+          `Variant does not belong to product ${item.title}`,
         );
-      totalOrderAmount += price * p.quantity;
+      }
+
+      // Use price from cart item (snapshot) or current variant price
+      // Cart item price is already validated when added to cart
+      const itemPrice = item.price || variant.price;
+      totalOrderAmount += itemPrice * item.quantity;
     });
 
     let subtotal = totalOrderAmount;
     let totalAmount = subtotal + 60; //added shipping
     let discount = 0;
-    if (createOrderDto.couponCode) {
-      const coupon = await this.couponModel.findOne({
-        code: (createOrderDto.couponCode as string).toUpperCase(),
-      });
-
-      if (!coupon) {
-        throw new NotFoundException('Invalid coupon code');
-      }
-
-      // Check if coupon is active
-      if (!coupon.isActive) {
-        throw new BadRequestException('Coupon is not active');
-      }
-
-      // Check date validity
-      const now = new Date();
-      if (now < new Date(coupon.validFrom)) {
-        throw new BadRequestException('Coupon is not yet valid');
-      }
-      if (now > new Date(coupon.validUntil)) {
-        throw new BadRequestException('Coupon has expired');
-      }
-
-      if (coupon.usedCount >= coupon.usageLimit) {
-        throw new BadRequestException('Coupon usage limit reached');
-      }
-
-      // Check minimum order amount
-      if (totalOrderAmount < coupon.minOrderAmount) {
-        throw new BadRequestException(
-          `Minimum order amount of ${coupon.minOrderAmount} required`,
-        );
-      }
-
-      discount =
-        coupon.discountType === 'percentage'
-          ? totalOrderAmount * (coupon.discountValue / 100)
-          : coupon.discountValue;
-
-      if (coupon.maxDiscountAmount && discount > coupon.maxDiscountAmount)
-        discount = coupon.maxDiscountAmount;
-
-      // Ensure discount doesn't exceed createOrderDto.items total
-      discount = Math.min(discount, totalOrderAmount);
-
-      coupon.usedCount++;
-      await coupon.save();
-    }
+    // Coupon functionality removed - can be re-implemented later if needed
+    // if (createOrderDto.couponCode) {
+    //   // Coupon validation logic here
+    // }
 
     totalAmount = totalAmount - discount;
 
     const order_id = await this.getNextOrderId();
 
+    // Convert ProductItemDto (string IDs) to ProductItem (ObjectId) for schema
+    const orderItems = createOrderDto.items.map((item) => ({
+      productId: new Types.ObjectId(item.productId),
+      variantId: new Types.ObjectId(item.variantId),
+      quantity: item.quantity,
+      title: item.title,
+      image_url: item.image_url,
+      price: item.price,
+      slug: item.slug,
+      sku: item.sku,
+      selectedOptions: item.selectedOptions
+        ? new Map<string, string>(Object.entries(item.selectedOptions))
+        : new Map<string, string>(),
+    }));
+
     let order_data: Order = {
       orderId: order_id,
-      items: createOrderDto.items,
+      items: orderItems,
       subtotal,
       discountAmount: discount,
       totalAmount,

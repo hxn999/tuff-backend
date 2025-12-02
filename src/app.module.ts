@@ -8,7 +8,6 @@ import { DashboardModule } from './dashboard/dashboard.module';
 import { CaslModule } from './casl/casl.module';
 import { ConfigModule } from '@nestjs/config';
 import { ProductsModule } from './products/products.module';
-import { CouponModule } from './coupon/coupon.module';
 import { OrdersModule } from './orders/orders.module';
 import { PaymentsModule } from './payments/payments.module';
 import { AnalyticsModule } from './analytics/analytics.module';
@@ -19,7 +18,7 @@ import { join } from 'path';
 
 @Module({
   imports: [
-    MongooseModule.forRoot('mongodb://localhost:27017/miskbd'),
+    MongooseModule.forRoot('mongodb://localhost:27017/tuff'),
     UserModule,
     AuthModule,
     DashboardModule,
@@ -27,7 +26,6 @@ import { join } from 'path';
     HttpModule,
     ConfigModule.forRoot({isGlobal:true}),
     ProductsModule,
-    CouponModule,
     OrdersModule,
     CaslModule,
     PaymentsModule,

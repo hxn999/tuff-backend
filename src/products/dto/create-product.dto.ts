@@ -1,7 +1,6 @@
 import { Transform, Type } from 'class-transformer';
 import {
   IsArray,
-  IsIn,
   IsInt,
   IsMongoId,
   IsNotEmpty,
@@ -12,6 +11,7 @@ import {
   Min,
   ValidateNested,
 } from 'class-validator';
+import { CreateProductVariantDto } from './create-product-variant.dto';
 
 const parseJsonArray = (value: unknown) => {
   if (typeof value === 'string') {
@@ -40,11 +40,18 @@ const normalizeOptions = (value: unknown) => {
 
     const normalized = { ...option } as Record<string, unknown>;
 
-    if (normalized.price !== undefined && normalized.price !== null) {
-      const numericPrice = Number(normalized.price);
-      normalized.price = Number.isNaN(numericPrice)
-        ? normalized.price
-        : numericPrice;
+    // Ensure values is an array
+    if (normalized.values !== undefined && normalized.values !== null) {
+      if (typeof normalized.values === 'string') {
+        try {
+          normalized.values = JSON.parse(normalized.values);
+        } catch {
+          normalized.values = [normalized.values];
+        }
+      }
+      if (!Array.isArray(normalized.values)) {
+        normalized.values = [normalized.values];
+      }
     }
 
     return normalized;
@@ -54,12 +61,22 @@ const normalizeOptions = (value: unknown) => {
 class OptionDto {
   @IsString()
   @IsNotEmpty()
-  type: string;
+  name: string;
 
-  @Type(() => Number)
-  @IsNumber()
-  @Min(0)
-  price: number;
+  @Transform(({ value }) => {
+    if (typeof value === 'string') {
+      try {
+        return JSON.parse(value);
+      } catch {
+        return [value];
+      }
+    }
+    return Array.isArray(value) ? value : [value];
+  })
+  @IsArray()
+  @IsString({ each: true })
+  @IsNotEmpty()
+  values: string[];
 }
 
 export class CreateProductDto {
@@ -79,11 +96,9 @@ export class CreateProductDto {
   @IsOptional()
   tags?: string[];
 
-  @Transform(({ value }) => parseJsonArray(value))
-  @IsArray()
-  @IsString({ each: true })
+  @IsMongoId()
   @IsOptional()
-  category?: string[];
+  category?: string;
 
   @Transform(({ value }) => normalizeOptions(value))
   @IsArray()
@@ -96,20 +111,33 @@ export class CreateProductDto {
   @Type(() => Number)
   @IsNumber()
   @Min(0)
-  price: number;
+  base_price: number;
 
   @Type(() => Number)
   @IsInt()
   @Min(0)
-  lastingTime: number;
-
-  @IsString()
-  @IsNotEmpty()
-  @MaxLength(100)
-  smellProjection: string;
+  @IsOptional()
+  top_image_index?: number;
 
   @Type(() => Number)
   @IsInt()
   @Min(0)
-  stock: number;
+  @IsOptional()
+  hover_image_index?: number;
+
+  @Transform(({ value }) => {
+    if (typeof value === 'string') {
+      try {
+        return JSON.parse(value);
+      } catch {
+        return value;
+      }
+    }
+    return value;
+  })
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => CreateProductVariantDto)
+  @IsOptional()
+  variants?: CreateProductVariantDto[];
 }

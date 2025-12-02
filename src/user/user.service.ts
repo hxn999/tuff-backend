@@ -16,10 +16,21 @@ import { default_pfp_url } from 'src/lib/util/constants';
 import { AddToCartDto } from './dto/addToCart';
 import { UpdateCartQuantityDto } from './dto/updateCartQuantity.dto';
 import { RemoveCartItemDto } from './dto/removeCartItem.dto';
+import {
+  Product,
+  ProductDocument,
+  ProductVariant,
+  ProductVariantDocument,
+} from 'src/products/schemas/product.schema';
 
 @Injectable()
 export class UserService {
-  constructor(@InjectModel(User.name) private userModel: Model<User>) {}
+  constructor(
+    @InjectModel(User.name) private userModel: Model<User>,
+    @InjectModel(Product.name) private productModel: Model<ProductDocument>,
+    @InjectModel(ProductVariant.name)
+    private productVariantModel: Model<ProductVariantDocument>,
+  ) {}
   private readonly logger = new Logger(UserService.name);
 
   async create(user: CreateUserDto): Promise<UserDocument> {
@@ -135,21 +146,29 @@ export class UserService {
       throw new NotFoundException('User Not Found!');
     }
 
-    // Validate variant exists in product options
-    const variantExists = productUpdate.product.options.some(
-      (opt) =>
-        opt.type === productUpdate.variant.type &&
-        opt.price === productUpdate.variant.price,
+    // Find product and variant
+    const product = await this.productModel.findById(productUpdate.productId);
+    if (!product) {
+      throw new NotFoundException('Product not found');
+    }
+
+    const variant = await this.productVariantModel.findById(
+      productUpdate.variantId,
     );
-    if (!variantExists) {
-      throw new BadRequestException('Invalid variant for this product');
+    if (!variant) {
+      throw new NotFoundException('Product variant not found');
+    }
+
+    // Validate variant belongs to product
+    if (variant.productId.toString() !== product._id.toString()) {
+      throw new BadRequestException('Variant does not belong to this product');
     }
 
     // Find existing cart item with same product and variant
     const index = user.cart.findIndex(
       (item) =>
-        item.product._id === productUpdate.product._id &&
-        item.variant.type === productUpdate.variant.type,
+        item.productId.toString() === productUpdate.productId &&
+        item.variantId.toString() === productUpdate.variantId,
     );
 
     if (index === -1) {
@@ -160,14 +179,21 @@ export class UserService {
     const quantityToUpdate = productUpdate.quantity ?? 1;
 
     // Validate quantity doesn't exceed stock
-    if (quantityToUpdate > productUpdate.product.stock) {
+    if (quantityToUpdate > variant.stock) {
       throw new BadRequestException('Quantity exceeds available stock');
     }
 
+    // Update cart item with latest product/variant data
     user.cart[index] = {
+      productId: product._id,
+      variantId: variant._id,
       quantity: quantityToUpdate,
-      variant: productUpdate.variant,
-      product: productUpdate.product,
+      title: product.title,
+      image_url: product.images_url[product.top_image_index] || product.images_url[0],
+      price: variant.price,
+      slug: product.slug,
+      selectedOptions: variant.options,
+      sku: variant.sku,
     };
 
     await user.save();
@@ -186,29 +212,37 @@ export class UserService {
       throw new NotFoundException('User Not Found!');
     }
 
-    // Validate variant exists in product options
-    const variantExists = productAdd.product.options.some(
-      (opt) =>
-        opt.type === productAdd.variant.type &&
-        opt.price === productAdd.variant.price,
+    // Find product and variant
+    const product = await this.productModel.findById(productAdd.productId);
+    if (!product) {
+      throw new NotFoundException('Product not found');
+    }
+
+    const variant = await this.productVariantModel.findById(
+      productAdd.variantId,
     );
-    if (!variantExists) {
-      throw new BadRequestException('Invalid variant for this product');
+    if (!variant) {
+      throw new NotFoundException('Product variant not found');
+    }
+
+    // Validate variant belongs to product
+    if (variant.productId.toString() !== product._id.toString()) {
+      throw new BadRequestException('Variant does not belong to this product');
     }
 
     // Default quantity to 1 if not provided
     const quantityToAdd = productAdd.quantity ?? 1;
 
     // Check stock availability
-    if (productAdd.product.stock < quantityToAdd) {
+    if (variant.stock < quantityToAdd) {
       throw new BadRequestException('Insufficient stock available');
     }
 
     // Find existing cart item with same product and variant
     const existingItemIndex = user.cart.findIndex(
       (item) =>
-        item.product._id === productAdd.product._id &&
-        item.variant.type === productAdd.variant.type,
+        item.productId.toString() === productAdd.productId &&
+        item.variantId.toString() === productAdd.variantId,
     );
 
     if (existingItemIndex !== -1) {
@@ -216,17 +250,24 @@ export class UserService {
       const newQuantity = user.cart[existingItemIndex].quantity + quantityToAdd;
 
       // Validate total quantity doesn't exceed stock
-      if (newQuantity > productAdd.product.stock) {
+      if (newQuantity > variant.stock) {
         throw new BadRequestException('Total quantity exceeds available stock');
       }
 
       user.cart[existingItemIndex].quantity = newQuantity;
     } else {
-      // Add new item to cart
+      // Add new item to cart with snapshot data
       user.cart.push({
+        productId: product._id,
+        variantId: variant._id,
         quantity: quantityToAdd,
-        variant: productAdd.variant,
-        product: productAdd.product,
+        title: product.title,
+        image_url:
+          product.images_url[product.top_image_index] || product.images_url[0],
+        price: variant.price,
+        slug: product.slug,
+        selectedOptions: variant.options,
+        sku: variant.sku,
       });
     }
 
@@ -262,16 +303,24 @@ export class UserService {
     // Find existing cart item with same product and variant
     const index = user.cart.findIndex(
       (item) =>
-        item.product._id === updateQuantityDto.productId &&
-        item.variant.type === updateQuantityDto.variantType,
+        item.productId.toString() === updateQuantityDto.productId &&
+        item.variantId.toString() === updateQuantityDto.variantId,
     );
 
     if (index === -1) {
       throw new BadRequestException('Product item does not exist in the cart');
     }
 
+    // Fetch current variant to check stock
+    const variant = await this.productVariantModel.findById(
+      user.cart[index].variantId,
+    );
+    if (!variant) {
+      throw new NotFoundException('Product variant not found');
+    }
+
     // Validate quantity doesn't exceed stock
-    if (updateQuantityDto.newQuantity > user.cart[index].product.stock) {
+    if (updateQuantityDto.newQuantity > variant.stock) {
       throw new BadRequestException('Quantity exceeds available stock');
     }
 
@@ -315,8 +364,8 @@ export class UserService {
     // Find existing cart item with same product and variant
     const index = user.cart.findIndex(
       (item) =>
-        item.product._id === removeItemDto.productId &&
-        item.variant.type === removeItemDto.variantType,
+        item.productId.toString() === removeItemDto.productId &&
+        item.variantId.toString() === removeItemDto.variantId,
     );
 
     if (index === -1) {

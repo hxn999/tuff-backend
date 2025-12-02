@@ -1,37 +1,53 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
 import mongoose, { HydratedDocument, Types } from 'mongoose';
 import { UserRole } from '../userRolesEnum';
-import { Variant } from 'src/products/schemas/product.schema';
 
 export type UserDocument = HydratedDocument<User>;
-
-export class CartProduct {
-  @Prop({ required: true, trim: true })
-  _id: string;
-  @Prop({ required: true, trim: true, maxlength: 200 })
-  title: string;
-  @Prop({ required: true })
-  images_url: string; // url of top image
-  @Prop({ required: true, min: 0 })
-  price: number;
-  @Prop({ type: [Variant], default: [] })
-  options: Variant[];
-  @Prop({ required: true, unique: true, trim: true })
-  public_url: string;
-  @Prop({ required: true, min: 0, default: 0 })
-  stock: number;
-}
-
-@Schema({ timestamps: true })
+@Schema({timestamps:true,id:false})
 export class ProductItem {
-  @Prop({ type: Number, default: 1, required: true })
+  // Reference to Product
+  @Prop({
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Product',
+    required: true,
+  })
+  productId: mongoose.Types.ObjectId;
+
+  // Reference to ProductVariant
+  @Prop({
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'ProductVariant',
+    required: true,
+  })
+  variantId: mongoose.Types.ObjectId;
+
+  // Quantity of this variant in cart
+  @Prop({ required: true, min: 1, default: 1 })
   quantity: number;
 
-  @Prop({ type: Variant, required: true })
-  variant: Variant;
+  // Snapshot data for quick display (avoids needing to populate on every fetch)
+  @Prop({ required: true, trim: true, maxlength: 200 })
+  title: string;
 
-  @Prop({ type: CartProduct, required: true })
-  product: CartProduct;
+  @Prop({ required: true })
+  image_url: string; // URL of the product's top image
+
+  @Prop({ required: true, min: 0 })
+  price: number; // Price at time of adding (for price protection)
+
+  @Prop({ required: true, trim: true })
+  slug: string; // Product slug for URL generation
+
+  // Selected variant options as a Map for reference
+  @Prop({
+    type: Map,
+    of: String,
+    required: true,
+  })
+  selectedOptions: Map<string, string>; // e.g., { "Color": "Red", "Size": "Large" }
+
+  @Prop({ required: true })
+  sku: string; // Variant SKU for reference
 }
 
 @Schema({ timestamps: true })
@@ -92,9 +108,6 @@ export class User {
 
   @Prop({ type: [ProductItem], default: [] })
   cart: ProductItem[];
-
-  @Prop({ type: [ProductItem], default: [] })
-  wishlist: ProductItem[];
 
   @Prop({ required: true, enum: UserRole, default: UserRole.VIEWER })
   role: UserRole;

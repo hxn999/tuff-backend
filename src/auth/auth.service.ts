@@ -22,7 +22,7 @@ import { firstValueFrom } from 'rxjs';
 import { generateRandomPassword } from 'src/lib/randomPassGen';
 import { sendOtpEmail } from 'src/lib/mail';
 import { Mongoose, Types } from 'mongoose';
-import { RequestWithAuth } from './auth.controller';
+import { LoginRes, RequestWithAuth } from './auth.controller';
 import { Action } from 'src/casl/actionEnum';
 
 export type UserPayload = {
@@ -57,7 +57,7 @@ export class AuthService {
     private configService: ConfigService,
   ) {}
 
-  async login(email: string, password: string, res: Response): Promise<any> {
+  async login(email: string, password: string, res: Response): Promise<LoginRes> {
     try {
       let foundUser: UserDocument = await this.userService.findOne(email);
 
@@ -101,12 +101,13 @@ export class AuthService {
         expires: accessTokenExpiry,
       });
 
-      return res.status(200).json({
-        user: {
+      return {
+        
           name: foundUser.name,
           pfp: foundUser.pfp,
-        },
-      });
+      
+      };
+    
     } catch (error) {
       throw new BadRequestException(error.message);
     }
@@ -533,8 +534,7 @@ export class AuthService {
       city: user.city,
       deliver_instructions: user.deliver_instructions,
       role: user.role,
-      cart: user.cart,
-      wishlist: user.wishlist,
+      cart: user.cart
     };
   }
 }

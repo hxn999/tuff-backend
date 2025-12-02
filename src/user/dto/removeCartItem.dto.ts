@@ -1,11 +1,11 @@
-import { IsNotEmpty, IsString } from 'class-validator';
+import { IsNotEmpty, IsString, IsMongoId } from 'class-validator';
 
 export class RemoveCartItemDto {
+  @IsMongoId()
   @IsNotEmpty()
-  @IsString()
   productId: string;
 
+  @IsMongoId()
   @IsNotEmpty()
-  @IsString()
-  variantType: string;
+  variantId: string;
 }

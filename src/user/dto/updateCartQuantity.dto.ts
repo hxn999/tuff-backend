@@ -1,13 +1,13 @@
-import { IsNotEmpty, IsString, IsNumber, Min } from 'class-validator';
+import { IsNotEmpty, IsString, IsNumber, Min, IsMongoId } from 'class-validator';
 
 export class UpdateCartQuantityDto {
+  @IsMongoId()
   @IsNotEmpty()
-  @IsString()
   productId: string;
 
+  @IsMongoId()
   @IsNotEmpty()
-  @IsString()
-  variantType: string;
+  variantId: string;
 
   @IsNotEmpty()
   @IsNumber()
