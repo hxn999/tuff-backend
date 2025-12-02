@@ -3,7 +3,7 @@ import mongoose, { HydratedDocument, Types } from 'mongoose';
 import { UserRole } from '../userRolesEnum';
 
 export type UserDocument = HydratedDocument<User>;
-@Schema({timestamps:true,id:false})
+@Schema({ timestamps: true, id: false })
 export class ProductItem {
   // Reference to Product
   @Prop({

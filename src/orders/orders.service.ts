@@ -83,7 +83,7 @@ export class OrdersService {
     });
 
     // Validate all products exist
-    if (products.length !== productIdArr.length) {
+ 
       createOrderDto.items.forEach((e) => {
         if (
           !products.some((p) => p._id.toString() === e.productId.toString())
@@ -93,10 +93,10 @@ export class OrdersService {
           );
         }
       });
-    }
+    
 
     // Validate all variants exist and belong to their products
-    if (variants.length !== variantIdArr.length) {
+   
       createOrderDto.items.forEach((e) => {
         if (
           !variants.some((v) => v._id.toString() === e.variantId.toString())
@@ -106,7 +106,8 @@ export class OrdersService {
           );
         }
       });
-    }
+    
+      let producVariantBulkWriteArray:any[]=[];
 
     // Calculate total using variant prices (use price from cart item which is already validated)
     createOrderDto.items.forEach((item) => {
@@ -136,9 +137,21 @@ export class OrdersService {
 
       // Use price from cart item (snapshot) or current variant price
       // Cart item price is already validated when added to cart
-      const itemPrice = item.price || variant.price;
+      if(variant.stock<item.quantity) throw new NotFoundException(`${item.title} is not available in stock`)
+      const itemPrice = variant.price;
       totalOrderAmount += itemPrice * item.quantity;
+
+      let latestStock =variant.stock-item.quantity
+      producVariantBulkWriteArray.push({
+        updateMany:{
+          filter:{_id:variant._id},
+          update:{$set:{stock:latestStock}}
+        }
+      })
+
     });
+
+
 
     let subtotal = totalOrderAmount;
     let totalAmount = subtotal + 60; //added shipping
@@ -191,6 +204,8 @@ export class OrdersService {
 
     const order = await this.orderModel.create(order_data);
 
+    await this.productVariantModel.bulkWrite(producVariantBulkWriteArray);
+
     if (user) {
       user.cart = [];
       user.orders.push(order._id);
@@ -201,6 +216,7 @@ export class OrdersService {
       order,
     };
   }
+
   async getNextOrderId() {
     let counter = await this.counterModel.findOneAndUpdate(
       { id: 'order' },
