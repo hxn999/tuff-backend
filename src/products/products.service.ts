@@ -1,4 +1,8 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import {
+  Injectable,
+  NotFoundException,
+  BadRequestException,
+} from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { FilterQuery, Model, Types } from 'mongoose';
 import {
@@ -7,9 +11,12 @@ import {
   ProductVariant,
   ProductVariantDocument,
 } from './schemas/product.schema';
+import { Category, CategoryDocument } from './schemas/category.schema';
 import { CreateProductDto } from './dto/create-product.dto';
 import { UpdateProductDto } from './dto/update-product.dto';
 import { QueryProductsDto } from './dto/query-products.dto';
+import { CreateCategoryDto } from './dto/create-category.dto';
+import { UpdateCategoryDto } from './dto/update-category.dto';
 import { CloudinaryService } from 'src/cloudinary/cloudinary.service';
 import { generateSlug } from 'src/lib/util/slugGenerator';
 
@@ -20,6 +27,8 @@ export class ProductsService {
     private productModel: Model<ProductDocument>,
     @InjectModel(ProductVariant.name)
     private productVariantModel: Model<ProductVariantDocument>,
+    @InjectModel(Category.name)
+    private categoryModel: Model<CategoryDocument>,
     private cloudinaryService: CloudinaryService,
   ) {}
 
@@ -145,13 +154,16 @@ export class ProductsService {
       : { createdAt: -1 };
 
     const [items, total] = await Promise.all([
-      queryWithSelect.skip(skip).limit(limit).sort(sortOptions).select(
-        'title base_price images_url top_image_index hover_image_index slug',
-      ).lean(),
+      queryWithSelect
+        .skip(skip)
+        .limit(limit)
+        .sort(sortOptions)
+        .select(
+          'title base_price images_url top_image_index hover_image_index slug',
+        )
+        .lean(),
       this.productModel.countDocuments(filter),
     ]);
-
-
 
     return {
       items,
@@ -236,6 +248,176 @@ export class ProductsService {
       )
       .lean();
 
-    return {searchResult:searchedProducts}
+    return { searchResult: searchedProducts };
+  }
+
+  // Category CRUD methods
+  async createCategory(createDto: CreateCategoryDto) {
+    // Validate parent if provided
+    if (createDto.parent) {
+      const parentCategory = await this.categoryModel.findById(
+        createDto.parent,
+      );
+      if (!parentCategory) {
+        throw new NotFoundException('Parent category not found');
+      }
+    }
+
+    const created = await this.categoryModel.create({
+      name: createDto.name,
+      parent: createDto.parent ? new Types.ObjectId(createDto.parent) : null,
+      isActive: createDto.isActive ?? true,
+    });
+
+    // Update parent's children array if parent exists
+    if (createDto.parent) {
+      await this.categoryModel.findByIdAndUpdate(createDto.parent, {
+        $addToSet: { children: created._id },
+      });
+    }
+
+    return created;
+  }
+
+  async findAllCategories(
+    page: number = 1,
+    limit: number = 10,
+    parent?: string,
+  ) {
+    const filter: FilterQuery<CategoryDocument> = { isDeleted: false };
+
+    if (parent) {
+      if (parent === 'null' || parent === '') {
+        filter.parent = null;
+      } else {
+        filter.parent = new Types.ObjectId(parent);
+      }
+    }
+
+    const skip = (page - 1) * limit;
+
+    const [items, total] = await Promise.all([
+      this.categoryModel
+        .find(filter)
+        .skip(skip)
+        .limit(limit)
+        .sort({ createdAt: -1 })
+        .lean(),
+      this.categoryModel.countDocuments(filter),
+    ]);
+
+    return {
+      items,
+      page,
+      limit,
+      total,
+      totalPages: Math.ceil(total / limit) || 1,
+    };
+  }
+
+  async findOneCategory(id: string) {
+    let category;
+    if (!Types.ObjectId.isValid(id)) {
+      category = await this.categoryModel
+        .findOne({ slug: id, isDeleted: false })
+        // .populate('children')
+        .lean();
+    } else {
+      category = await this.categoryModel
+        .findOne({ _id: id, isDeleted: false })
+        // .populate('children')
+        .lean();
+    }
+
+    if (!category) {
+      throw new NotFoundException('Category not found');
+    }
+
+    return category;
+  }
+
+  async updateCategory(id: string, updateDto: UpdateCategoryDto) {
+    const category = await this.categoryModel.findById(id);
+    if (!category || category.isDeleted) {
+      throw new NotFoundException('Category not found');
+    }
+
+    // Validate parent if provided
+    if (updateDto.parent !== undefined) {
+      if (updateDto.parent) {
+        // Check if parent exists
+        const parentCategory = await this.categoryModel.findById(
+          updateDto.parent,
+        );
+        if (!parentCategory) {
+          throw new NotFoundException('Parent category not found');
+        }
+        // Prevent circular reference (category cannot be its own parent or ancestor)
+        if (updateDto.parent === id) {
+          throw new BadRequestException('Category cannot be its own parent');
+        }
+        // Check if parent is a descendant
+        const parentAncestors = parentCategory.ancestors || [];
+        const isDescendant = parentAncestors.some(
+          (ancestor) => ancestor._id.toString() === id,
+        );
+        if (isDescendant) {
+          throw new BadRequestException('Cannot set a descendant as parent');
+        }
+      }
+
+      // Update parent's children arrays
+      const oldParent = category.parent;
+      if (oldParent) {
+        await this.categoryModel.findByIdAndUpdate(oldParent, {
+          $pull: { children: category._id },
+        });
+      }
+      if (updateDto.parent) {
+        await this.categoryModel.findByIdAndUpdate(updateDto.parent, {
+          $addToSet: { children: category._id },
+        });
+      }
+    }
+
+    // Update category
+    const updated = await this.categoryModel
+      .findByIdAndUpdate(id, updateDto, { new: true })
+      .lean();
+
+    if (!updated) {
+      throw new NotFoundException('Category not found');
+    }
+
+    return updated;
+  }
+
+  async removeCategory(id: string) {
+    const category = await this.categoryModel.findById(id);
+    if (!category || category.isDeleted) {
+      throw new NotFoundException('Category not found');
+    }
+
+    // Check if category has children
+    const hasChildren = category.children && category.children.length > 0;
+    if (hasChildren) {
+      throw new BadRequestException(
+        'Cannot delete category with children. Please delete or reassign children first.',
+      );
+    }
+
+    // Soft delete
+    const deleted = await this.categoryModel
+      .findByIdAndUpdate(id, { isDeleted: true }, { new: true })
+      .lean();
+
+    // Remove from parent's children array
+    if (category.parent) {
+      await this.categoryModel.findByIdAndUpdate(category.parent, {
+        $pull: { children: category._id },
+      });
+    }
+
+    return { deleted: true, category: deleted };
   }
 }

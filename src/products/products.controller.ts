@@ -37,6 +37,12 @@ import {
   ProductSearchResponseDto,
   ProductCreateResponseDto,
 } from './dto/product-response.dto';
+import { CreateCategoryDto } from './dto/create-category.dto';
+import { UpdateCategoryDto } from './dto/update-category.dto';
+import {
+  CategoryResponseDto,
+  CategoryListResponseDto,
+} from './dto/category-response.dto';
 
 @ApiTags('products')
 @Controller('products')
@@ -159,4 +165,132 @@ export class ProductsController {
   //   console.log(files);
   //   return 'uploaded!';
   // }
+
+  // Category CRUD endpoints
+  @Post('categories')
+  @HttpCode(HttpStatus.CREATED)
+  @ApiOperation({
+    summary: 'Create a new category',
+    description:
+      'Create a new category. Can optionally specify a parent category to create a subcategory.',
+  })
+  @ApiCreatedResponse({
+    description: 'Category created successfully',
+    type: CategoryResponseDto,
+  })
+  @ApiBadRequestResponse({
+    description: 'Invalid category data or parent category not found',
+  })
+  async createCategory(@Body() createDto: CreateCategoryDto) {
+    return this.productsService.createCategory(createDto);
+  }
+
+  @Get('categories')
+  @ApiOperation({
+    summary: 'Get all categories',
+    description:
+      'Retrieve a paginated list of categories. Can filter by parent category.',
+  })
+  @ApiQuery({
+    name: 'page',
+    description: 'Page number',
+    example: 1,
+    required: false,
+    type: Number,
+  })
+  @ApiQuery({
+    name: 'limit',
+    description: 'Items per page',
+    example: 10,
+    required: false,
+    type: Number,
+  })
+  @ApiQuery({
+    name: 'parent',
+    description:
+      'Filter by parent category ID. Use "null" or empty string for root categories.',
+    example: '507f1f77bcf86cd799439011',
+    required: false,
+    type: String,
+  })
+  @ApiOkResponse({
+    description: 'Categories retrieved successfully',
+    type: CategoryListResponseDto,
+  })
+  async getAllCategories(
+    @Query('page') page?: string,
+    @Query('limit') limit?: string,
+    @Query('parent') parent?: string,
+  ) {
+    const pageNum = page ? parseInt(page, 10) : 1;
+    const limitNum = limit ? parseInt(limit, 10) : 10;
+    return this.productsService.findAllCategories(pageNum, limitNum, parent);
+  }
+
+  @Get('categories/:id')
+  @ApiOperation({
+    summary: 'Get a single category',
+    description:
+      'Retrieve a single category by ID or slug with all its details.',
+  })
+  @ApiOkResponse({
+    description: 'Category retrieved successfully',
+    type: CategoryResponseDto,
+  })
+  @ApiNotFoundResponse({
+    description: 'Category not found',
+  })
+  async getSingleCategory(@Param('id') id: string) {
+    return this.productsService.findOneCategory(id);
+  }
+
+  @Patch('categories/:id')
+  @ApiOperation({
+    summary: 'Update a category',
+    description:
+      'Update category details. Can change name, parent, or active status.',
+  })
+  @ApiOkResponse({
+    description: 'Category updated successfully',
+    type: CategoryResponseDto,
+  })
+  @ApiNotFoundResponse({
+    description: 'Category not found',
+  })
+  @ApiBadRequestResponse({
+    description: 'Invalid update data or circular reference detected',
+  })
+  async updateCategory(
+    @Param('id') id: string,
+    @Body() updateDto: UpdateCategoryDto,
+  ) {
+    return this.productsService.updateCategory(id, updateDto);
+  }
+
+  @Delete('categories/:id')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Delete a category',
+    description:
+      "Soft delete a category. Category must not have children. Removes category from parent's children array.",
+  })
+  @ApiOkResponse({
+    description: 'Category deleted successfully',
+    schema: {
+      type: 'object',
+      properties: {
+        deleted: { type: 'boolean', example: true },
+        category: { type: 'object' },
+      },
+    },
+  })
+  @ApiNotFoundResponse({
+    description: 'Category not found',
+  })
+  @ApiBadRequestResponse({
+    description: 'Category has children and cannot be deleted',
+  })
+  async removeCategory(@Param('id') id: string) {
+    return this.productsService.removeCategory(id);
+  }
 }
