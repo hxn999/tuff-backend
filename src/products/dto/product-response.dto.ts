@@ -1,4 +1,5 @@
 import { ApiProperty } from '@nestjs/swagger';
+import { CategoryResponseDto } from './category-response.dto';
 
 export class ProductVariantResponseDto {
   @ApiProperty({ description: 'Variant ID' })
@@ -90,10 +91,32 @@ export class ProductDetailResponseDto {
 
   @ApiProperty({
     description: 'Category ID',
-    example: '507f1f77bcf86cd799439011',
-    required: false,
-  })
-  category?: string;
+    example:{
+      "_id": "string",
+      "name": "Electronics",
+      "slug": "electronics",
+      "parent": "507f1f77bcf86cd799439011",
+      "children": [
+        "507f1f77bcf86cd799439012",
+        "507f1f77bcf86cd799439013"
+      ],
+      "ancestors": [
+        {
+          "_id": "string",
+          "name": "Electronics",
+          "slug": "electronics"
+        }
+      ],
+      "isActive": true,
+      "isDeleted": false,
+      "createdAt": "2025-12-05T13:58:14.790Z",
+      "updatedAt": "2025-12-05T13:58:14.790Z"
+     ,
+    required: false
+    
+  }}
+)
+  category?: CategoryResponseDto;
 
   @ApiProperty({
     description: 'Product variant options configuration',
@@ -109,7 +132,7 @@ export class ProductDetailResponseDto {
   })
   options: Array<{ name: string; values: string[] }>;
 
-  @ApiProperty({ description: 'Base/starting price', example: 19.99 })
+  @ApiProperty({ description: 'Base/starting price', example: 19.9 })
   base_price: number;
 
   @ApiProperty({

@@ -177,9 +177,9 @@ export class ProductsService {
   async findOne(id: string) {
     let product;
     if (!Types.ObjectId.isValid(id)) {
-      product = await this.productModel.findOne({ slug: id }).lean();
+      product = await this.productModel.findOne({ slug: id }).populate('category').lean();
     } else {
-      product = await this.productModel.findById(id).lean();
+      product = await this.productModel.findById(id).populate('category').lean();
     }
 
     if (!product) throw new NotFoundException('Product not found');
