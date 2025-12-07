@@ -29,7 +29,7 @@ import { CaslModule } from 'src/casl/casl.module';
           configService.get<string>('JWT_SECRET') ||
           'your-default-jwt-secret-key-change-this-in-production',
         signOptions: {
-          expiresIn: configService.get<string>('JWT_EXPIRATION_TIME') || '1h',
+          expiresIn:Number( configService.get<string>('JWT_EXPIRATION_TIME') )|| 600,
         },
       }),
     }),

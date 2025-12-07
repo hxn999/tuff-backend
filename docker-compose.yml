@@ -1,0 +1,84 @@
+version: '3.8'
+
+services:
+  # MongoDB Database
+  mongodb:
+    image: mongo:7.0
+    container_name: tuff-mongodb
+    restart: unless-stopped
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: ${MONGO_ROOT_USERNAME:-admin}
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_ROOT_PASSWORD:-changeme}
+      MONGO_INITDB_DATABASE: ${MONGO_DATABASE:-tuff}
+    ports:
+      - "${MONGO_PORT:-27017}:27017"
+    volumes:
+      - mongodb_data:/data/db
+      - mongodb_config:/data/configdb
+    networks:
+      - tuff-network
+    healthcheck:
+      test: echo 'db.runCommand("ping").ok' | mongosh localhost:27017/test --quiet
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 40s
+
+  # NestJS Backend Application
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: tuff-backend
+    restart: unless-stopped
+    ports:
+      - "${BACKEND_PORT:-3005}:3005"
+    environment:
+      # Node Environment
+      NODE_ENV: production
+      
+      # MongoDB Configuration
+      MONGODB_URI: mongodb://${MONGO_ROOT_USERNAME:-admin}:${MONGO_ROOT_PASSWORD:-changeme}@mongodb:27017/${MONGO_DATABASE:-tuff}?authSource=admin
+      
+      # JWT Configuration
+      JWT_SECRET: ${JWT_SECRET:-your-super-secret-jwt-key-change-this-in-production}
+      JWT_EXPIRATION_TIME: ${JWT_EXPIRATION_TIME:-3600}
+      
+      # Cloudinary Configuration
+      CLOUDINARY_CLOUD_NAME: ${CLOUDINARY_CLOUD_NAME}
+      CLOUDINARY_API_KEY: ${CLOUDINARY_API_KEY}
+      CLOUDINARY_API_SECRET: ${CLOUDINARY_API_SECRET}
+      
+      # SSLCommerz Payment Gateway
+      STORE_ID: ${STORE_ID}
+      STORE_PASSWD: ${STORE_PASSWD}
+      
+      # Email Configuration (Zoho)
+      ZOHO_PASSWORD: ${ZOHO_PASSWORD}
+    volumes:
+      - ./uploads:/app/uploads
+      - ./public:/app/public
+    depends_on:
+      mongodb:
+        condition: service_healthy
+    networks:
+      - tuff-network
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://localhost:3005/', (r) => {process.exit(r.statusCode ? 0 : 1)}).on('error', () => process.exit(1))"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+volumes:
+  mongodb_data:
+    driver: local
+  mongodb_config:
+    driver: local
+
+networks:
+  tuff-network:
+    driver: bridge
+
+
+

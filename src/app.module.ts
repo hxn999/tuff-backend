@@ -6,7 +6,7 @@ import { UserModule } from './user/user.module';
 import { AuthModule } from './auth/auth.module';
 import { DashboardModule } from './dashboard/dashboard.module';
 import { CaslModule } from './casl/casl.module';
-import { ConfigModule } from '@nestjs/config';
+import { ConfigModule, ConfigService } from '@nestjs/config';
 import { ProductsModule } from './products/products.module';
 import { OrdersModule } from './orders/orders.module';
 import { PaymentsModule } from './payments/payments.module';
@@ -18,13 +18,20 @@ import { join } from 'path';
 
 @Module({
   imports: [
-    MongooseModule.forRoot('mongodb://localhost:27017/tuff'),
+    ConfigModule.forRoot({ isGlobal: true }),
+    MongooseModule.forRootAsync({
+      inject: [ConfigService],
+      useFactory: (configService: ConfigService) => ({
+        uri:
+          configService.get<string>('MONGO_URI') ||
+          'mongodb://localhost:27017/tuff',
+      }),
+    }),
     UserModule,
     AuthModule,
     DashboardModule,
     CaslModule,
     HttpModule,
-    ConfigModule.forRoot({isGlobal:true}),
     ProductsModule,
     OrdersModule,
     CaslModule,

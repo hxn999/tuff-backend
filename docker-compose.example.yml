@@ -1,0 +1,59 @@
+# Example docker-compose.yml
+# Copy this file to docker-compose.yml and update the environment variables
+
+version: '3.8'
+
+services:
+  mongodb:
+    image: mongo:7.0
+    container_name: tuff-mongodb
+    restart: unless-stopped
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: admin
+      MONGO_INITDB_ROOT_PASSWORD: your_secure_password_here
+      MONGO_INITDB_DATABASE: tuff
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongodb_data:/data/db
+      - mongodb_config:/data/configdb
+    networks:
+      - tuff-network
+
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: tuff-backend
+    restart: unless-stopped
+    ports:
+      - "3005:3005"
+    environment:
+      NODE_ENV: production
+      MONGODB_URI: mongodb://admin:your_secure_password_here@mongodb:27017/tuff?authSource=admin
+      JWT_SECRET: your-super-secret-jwt-key-here
+      JWT_EXPIRATION_TIME: 3600
+      CLOUDINARY_CLOUD_NAME: your_cloudinary_cloud_name
+      CLOUDINARY_API_KEY: your_cloudinary_api_key
+      CLOUDINARY_API_SECRET: your_cloudinary_api_secret
+      STORE_ID: your_sslcommerz_store_id
+      STORE_PASSWD: your_sslcommerz_store_password
+      ZOHO_PASSWORD: your_zoho_email_password
+    volumes:
+      - ./uploads:/app/uploads
+      - ./public:/app/public
+    depends_on:
+      - mongodb
+    networks:
+      - tuff-network
+
+volumes:
+  mongodb_data:
+  mongodb_config:
+
+networks:
+  tuff-network:
+    driver: bridge
+
+
+

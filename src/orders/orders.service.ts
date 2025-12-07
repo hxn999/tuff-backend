@@ -4,7 +4,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
-import { Model } from 'mongoose';
+import { Model, FilterQuery } from 'mongoose';
 import {
   Order,
   OrderDocument,
@@ -83,31 +83,26 @@ export class OrdersService {
     });
 
     // Validate all products exist
- 
-      createOrderDto.items.forEach((e) => {
-        if (
-          !products.some((p) => p._id.toString() === e.productId.toString())
-        ) {
-          throw new NotFoundException(
-            `Product ${e.title} does not exist, please remove it from cart`,
-          );
-        }
-      });
-    
+
+    createOrderDto.items.forEach((e) => {
+      if (!products.some((p) => p._id.toString() === e.productId.toString())) {
+        throw new NotFoundException(
+          `Product ${e.title} does not exist, please remove it from cart`,
+        );
+      }
+    });
 
     // Validate all variants exist and belong to their products
-   
-      createOrderDto.items.forEach((e) => {
-        if (
-          !variants.some((v) => v._id.toString() === e.variantId.toString())
-        ) {
-          throw new NotFoundException(
-            `Variant for product ${e.title} does not exist, please remove it from cart`,
-          );
-        }
-      });
-    
-      let producVariantBulkWriteArray:any[]=[];
+
+    createOrderDto.items.forEach((e) => {
+      if (!variants.some((v) => v._id.toString() === e.variantId.toString())) {
+        throw new NotFoundException(
+          `Variant for product ${e.title} does not exist, please remove it from cart`,
+        );
+      }
+    });
+
+    let producVariantBulkWriteArray: any[] = [];
 
     // Calculate total using variant prices (use price from cart item which is already validated)
     createOrderDto.items.forEach((item) => {
@@ -137,21 +132,19 @@ export class OrdersService {
 
       // Use price from cart item (snapshot) or current variant price
       // Cart item price is already validated when added to cart
-      if(variant.stock<item.quantity) throw new NotFoundException(`${item.title} is not available in stock`)
+      if (variant.stock < item.quantity)
+        throw new NotFoundException(`${item.title} is not available in stock`);
       const itemPrice = variant.price;
       totalOrderAmount += itemPrice * item.quantity;
 
-      let latestStock =variant.stock-item.quantity
+      let latestStock = variant.stock - item.quantity;
       producVariantBulkWriteArray.push({
-        updateMany:{
-          filter:{_id:variant._id},
-          update:{$set:{stock:latestStock}}
-        }
-      })
-
+        updateMany: {
+          filter: { _id: variant._id },
+          update: { $set: { stock: latestStock } },
+        },
+      });
     });
-
-
 
     let subtotal = totalOrderAmount;
     let totalAmount = subtotal + 60; //added shipping
@@ -228,11 +221,188 @@ export class OrdersService {
   }
 
   async findAll(queryDto: QueryOrdersDto) {
-    // TODO: Implement findAll with filtering logic
+    const {
+      page = 1,
+      limit = 10,
+      search,
+      status,
+      paymentStatus,
+      paymentMethod,
+      userId,
+      couponCode,
+      startDate,
+      endDate,
+      minAmount,
+      maxAmount,
+    } = queryDto;
+
+    const filter: FilterQuery<OrderDocument> = {};
+
+    // Search by orderId, shippingName, or shippingPhone
+    if (search && search.trim()) {
+      filter.$or = [
+        { orderId: { $regex: search.trim(), $options: 'i' } },
+        { shippingName: { $regex: search.trim(), $options: 'i' } },
+        { shippingPhone: { $regex: search.trim(), $options: 'i' } },
+      ];
+    }
+
+    // Filter by status
+    if (status) {
+      filter.status = status;
+    }
+
+    // Filter by payment status
+    if (paymentStatus) {
+      filter.paymentStatus = paymentStatus;
+    }
+
+    // Filter by payment method
+    if (paymentMethod) {
+      filter.paymentMethod = paymentMethod;
+    }
+
+    // Filter by user ID
+    if (userId) {
+      if (!Types.ObjectId.isValid(userId)) {
+        throw new BadRequestException('Invalid user ID format');
+      }
+      filter.userId = new Types.ObjectId(userId);
+    }
+
+    // Filter by coupon code
+    if (couponCode) {
+      filter.couponCode = couponCode;
+    }
+
+    // Filter by date range
+    if (startDate || endDate) {
+      filter.createdAt = {} as any;
+      if (startDate) {
+        (filter.createdAt as any).$gte = new Date(startDate);
+      }
+      if (endDate) {
+        (filter.createdAt as any).$lte = new Date(endDate);
+      }
+    }
+
+    // Filter by amount range
+    if (minAmount != null || maxAmount != null) {
+      filter.totalAmount = {} as any;
+      if (minAmount != null) {
+        (filter.totalAmount as any).$gte = minAmount;
+      }
+      if (maxAmount != null) {
+        (filter.totalAmount as any).$lte = maxAmount;
+      }
+    }
+
+    const skip = (page - 1) * limit;
+
+    const [items, total] = await Promise.all([
+      this.orderModel
+        .find(filter)
+        .skip(skip)
+        .limit(limit)
+        .sort({ createdAt: -1 })
+        .populate('userId', 'name email phone')
+        .lean(),
+      this.orderModel.countDocuments(filter),
+    ]);
+
+    // Convert Map to object for JSON serialization in order items
+    const itemsWithSerializedOptions = items.map((order) => {
+      const serializedItems = order.items.map((item: any) => {
+        let optionsObj: Record<string, string> = {};
+        if (item.selectedOptions) {
+          if (item.selectedOptions instanceof Map) {
+            optionsObj = Object.fromEntries(item.selectedOptions.entries());
+          } else {
+            optionsObj = item.selectedOptions as Record<string, string>;
+          }
+        }
+        return {
+          ...item,
+          productId: item.productId?.toString() || item.productId,
+          variantId: item.variantId?.toString() || item.variantId,
+          selectedOptions: optionsObj,
+        };
+      });
+
+      return {
+        ...order,
+        _id: order._id.toString(),
+        userId: order.userId
+          ? typeof order.userId === 'object' && order.userId._id
+            ? order.userId._id.toString()
+            : order.userId.toString()
+          : undefined,
+        paymentId: order.paymentId?.toString() || order.paymentId,
+        items: serializedItems,
+      };
+    });
+
+    return {
+      items: itemsWithSerializedOptions,
+      page,
+      limit,
+      total,
+      totalPages: Math.ceil(total / limit) || 1,
+    };
   }
 
   async findOne(id: string) {
-    // TODO: Implement findOne logic
+    let order;
+
+    // Check if id is a valid MongoDB ObjectId
+    if (Types.ObjectId.isValid(id)) {
+      order = await this.orderModel
+        .findById(id)
+        .populate('userId', 'name email phone')
+        .populate('paymentId')
+        .lean();
+    } else {
+      // If not a valid ObjectId, search by orderId
+      order = await this.orderModel
+        .findOne({ orderId: id })
+        .populate('userId', 'name email phone')
+        .populate('paymentId')
+        .lean();
+    }
+
+    if (!order) {
+      throw new NotFoundException('Order not found');
+    }
+
+    // Convert Map to object for JSON serialization in order items
+    const serializedItems = order.items.map((item: any) => {
+      let optionsObj: Record<string, string> = {};
+      if (item.selectedOptions) {
+        if (item.selectedOptions instanceof Map) {
+          optionsObj = Object.fromEntries(item.selectedOptions.entries());
+        } else {
+          optionsObj = item.selectedOptions as Record<string, string>;
+        }
+      }
+      return {
+        ...item,
+        productId: item.productId?.toString() || item.productId,
+        variantId: item.variantId?.toString() || item.variantId,
+        selectedOptions: optionsObj,
+      };
+    });
+
+    return {
+      ...order,
+      _id: order._id.toString(),
+      userId: order.userId
+        ? typeof order.userId === 'object' && order.userId._id
+          ? order.userId._id.toString()
+          : order.userId.toString()
+        : undefined,
+      paymentId: order.paymentId?.toString() || order.paymentId,
+      items: serializedItems,
+    };
   }
 
   async update(id: string, updateDto: UpdateOrderDto) {
